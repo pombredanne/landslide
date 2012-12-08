@@ -135,6 +135,19 @@ class GeneratorTest(BaseTestCase):
 
         self.assertRaises(TypeError, g.register_macro, plop)
 
+    def test_presenter_notes(self):
+        g = Generator(os.path.join(SAMPLES_DIR, 'example1', 'slides.md'))
+        svars = g.get_slide_vars("<h1>heading</h1>\n<p>foo</p>\n"
+                                 "<h1>Presenter Notes</h1>\n<p>bar</p>\n")
+        self.assertEquals(svars['presenter_notes'], "<p>bar</p>")
+
+    def test_skip_presenter_notes(self):
+        g = Generator(os.path.join(SAMPLES_DIR, 'example1', 'slides.md'),
+                presenter_notes=False)
+        svars = g.get_slide_vars("<h1>heading</h1>\n<p>foo</p>\n"
+                                 "<h1>Presenter Notes</h1>\n<p>bar</p>\n")
+        self.assertEquals(svars['presenter_notes'], None)
+
 
 class CodeHighlightingMacroTest(BaseTestCase):
     def setUp(self):
@@ -216,7 +229,7 @@ class FixImagePathsMacroTest(BaseTestCase):
         base_dir = os.path.join(SAMPLES_DIR, 'example1', 'slides.md')
         m = macro.FixImagePathsMacro(self.logtest, False)
         content, classes = m.process('<img src="monkey.jpg"/>', base_dir)
-        self.assertTrue(re.match(r'<img src="file://.*?/monkey.jpg" />',
+        self.assertTrue(re.match(r'<img src="file://.*?/monkey.jpg" */>',
                                  content))
 
 

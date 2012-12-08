@@ -50,7 +50,7 @@ class CodeHighlightingMacro(Macro):
        Pygments.
     """
     code_blocks_re = re.compile(
-        r'(<pre.+?>(<code>)?\s?!(\w+?)\n(.*?)(</code>)?</pre>)',
+        r'(<pre.+?>(<code>)?\s?!(\S+?)\n(.*?)(</code>)?</pre>)',
         re.UNICODE | re.MULTILINE | re.DOTALL)
 
     html_entity_re = re.compile('&(\w+?);')
@@ -70,7 +70,7 @@ class CodeHighlightingMacro(Macro):
         classes = []
         for block, void1, lang, code, void2 in code_blocks:
             try:
-                lexer = get_lexer_by_name(lang)
+                lexer = get_lexer_by_name(lang, startinline=True)
             except Exception:
                 self.logger(u"Unknown pygment lexer \"%s\", skipping"
                             % lang, 'warning')
@@ -107,6 +107,7 @@ class EmbedImagesMacro(Macro):
             encoded_url = utils.encode_image_from_url(image_url, source_dir)
 
             if not encoded_url:
+                self.logger(u"Failed to embed image \"%s\"" % image_url, 'warning')
                 return content, classes
 
             content = content.replace(u"src=\"" + image_url,

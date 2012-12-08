@@ -95,6 +95,13 @@ def _parse_options():
         default=False)
 
     parser.add_option(
+        "-P", "--no-presenter-notes",
+        action="store_false",
+        dest="presenter_notes",
+        help="Don't include presenter notes in the output",
+        default=True)
+
+    parser.add_option(
         "-q", "--quiet",
         action="store_false",
         dest="verbose",
@@ -129,6 +136,14 @@ def _parse_options():
         dest="extensions",
         help="Comma-separated list of extensions for Markdown",
         default='',
+    )
+
+    parser.add_option(
+        "-w", "--watch",
+        action="store_true",
+        dest="watch",
+        help="Watch source directory for changes and regenerate slides",
+        default=False
     )
 
     (options, args) = parser.parse_args()

@@ -66,6 +66,7 @@ class Generator(object):
             - ``encoding``: the encoding to use for this presentation
             - ``extensions``: Comma separated list of markdown extensions
             - ``logger``: a logger lambda to use for logging
+            - ``presenter_notes``: enable presenter notes
             - ``relative``: enable relative asset urls
             - ``theme``: path to the theme to use for this presentation
             - ``verbose``: enables verbose output
@@ -79,10 +80,12 @@ class Generator(object):
         self.encoding = kwargs.get('encoding', 'utf8')
         self.extensions = kwargs.get('extensions', None)
         self.logger = kwargs.get('logger', None)
+        self.presenter_notes = kwargs.get('presenter_notes', True)
         self.relative = kwargs.get('relative', False)
         self.theme = kwargs.get('theme', 'default')
         self.verbose = kwargs.get('verbose', False)
         self.linenos = self.linenos_check(kwargs.get('linenos'))
+        self.watch = kwargs.get('watch', False)
         self.num_slides = 0
         self.__toc = []
 
@@ -98,22 +101,29 @@ class Generator(object):
             raise IOError(u"Source file/directory %s does not exist"
                           % source)
 
-        self.source_base_dir = os.path.split(os.path.abspath(source))[0]
         if source.endswith('.cfg'):
             config = self.parse_config(source)
             self.source = config.get('source')
             if not self.source:
                 raise IOError('unable to fetch a valid source from config')
+            source_abspath = os.path.abspath(self.source[0])
             self.destination_file = config.get('destination',
                 self.DEFAULT_DESTINATION)
             self.embed = config.get('embed', False)
             self.relative = config.get('relative', False)
+            self.extensions = config.get('extensions', '')
             self.theme = config.get('theme', 'default')
             self.add_user_css(config.get('css', []))
             self.add_user_js(config.get('js', []))
             self.linenos = self.linenos_check(config.get('linenos'))
         else:
             self.source = source
+            source_abspath = os.path.abspath(source)
+
+        if not os.path.isdir(source_abspath):
+            source_abspath = os.path.dirname(source_abspath)
+
+        self.watch_dir = source_abspath
 
         if (os.path.exists(self.destination_file)
             and not os.path.isfile(self.destination_file)):
@@ -146,7 +156,8 @@ class Generator(object):
                     raise IOError('%s user css file not found' % (css_path,))
                 self.user_css.append({
                     'path_url': utils.get_path_url(css_path, self.relative),
-                    'contents': open(css_path).read(),
+                    'contents': codecs.open(css_path,
+                                            encoding=self.encoding).read(),
                 })
 
     def add_user_js(self, js_list):
@@ -158,12 +169,19 @@ class Generator(object):
             js_list = [js_list]
         for js_path in js_list:
             if js_path and not js_path in self.user_js:
-                if not os.path.exists(js_path):
+                if js_path.startswith("http:"):
+                    self.user_js.append({
+                        'path_url': js_path,
+                        'contents': '',
+                    })
+                elif not os.path.exists(js_path):
                     raise IOError('%s user js file not found' % (js_path,))
-                self.user_js.append({
-                    'path_url': utils.get_path_url(js_path, self.relative),
-                    'contents': open(js_path).read(),
-                })
+                else:
+                    self.user_js.append({
+                        'path_url': utils.get_path_url(js_path, self.relative),
+                        'contents': codecs.open(js_path,
+                            encoding=self.encoding).read(),
+                    })
 
     def add_toc_entry(self, title, level, slide_number):
         """ Adds a new entry to current presentation Table of Contents.
@@ -196,8 +214,21 @@ class Generator(object):
             else:
                 print self.render().encode(self.encoding)
         else:
-            self.write()
-            self.log(u"Generated file: %s" % self.destination_file)
+            self.write_and_log()
+
+            if self.watch:
+                from watcher import watch
+
+                self.log(u"Watching %s\n" % self.watch_dir)
+
+                watch(self.watch_dir, self.write_and_log)
+
+    def write_and_log(self):
+        self.watch_files = []
+        self.num_slides = 0
+        self.__toc = []
+        self.write()
+        self.log(u"Generated file: %s" % self.destination_file)
 
     def get_template_file(self):
         """ Retrieves Jinja2 template file path.
@@ -288,14 +319,15 @@ class Generator(object):
 
         css['print'] = {
             'path_url': utils.get_path_url(print_css, self.relative),
-            'contents': open(print_css).read(),
+            'contents': codecs.open(print_css, encoding=self.encoding).read(),
         }
 
         screen_css = os.path.join(self.theme_dir, 'css', 'screen.css')
         if (os.path.exists(screen_css)):
             css['screen'] = {
                 'path_url': utils.get_path_url(screen_css, self.relative),
-                'contents': open(screen_css).read(),
+                'contents': codecs.open(screen_css,
+                                        encoding=self.encoding).read(),
             }
         else:
             self.log(u"No screen stylesheet provided in current theme",
@@ -317,7 +349,7 @@ class Generator(object):
 
         return {
             'path_url': utils.get_path_url(js_file, self.relative),
-            'contents': open(js_file).read(),
+            'contents': codecs.open(js_file, encoding=self.encoding).read(),
         }
 
     def get_slide_vars(self, slide_src, source=None):
@@ -339,6 +371,9 @@ class Generator(object):
 
         slide_classes = []
 
+        if header:
+            header, _ = self.process_macros(header, source)
+
         if content:
             content, slide_classes = self.process_macros(content, source)
 
@@ -346,7 +381,8 @@ class Generator(object):
                              re.DOTALL | re.UNICODE | re.IGNORECASE)
 
             if find:
-                presenter_notes = content[find.end():].strip()
+                if self.presenter_notes:
+                    presenter_notes = content[find.end():].strip()
                 content = content[:find.start()]
 
         source_dict = {}
@@ -422,6 +458,9 @@ class Generator(object):
             config['embed'] = raw_config.getboolean('landslide', 'embed')
         if raw_config.has_option('landslide', 'relative'):
             config['relative'] = raw_config.getboolean('landslide', 'relative')
+        if raw_config.has_option('landslide', 'extensions'):
+            config['extensions'] = ",".join(raw_config.get('landslide', 'extensions')\
+                .replace('\r', '').split('\n'))
         if raw_config.has_option('landslide', 'css'):
             config['css'] = raw_config.get('landslide', 'css')\
                 .replace('\r', '').split('\n')
@@ -473,12 +512,35 @@ class Generator(object):
 
             for img_url in images:
                 img_url = img_url.replace('"', '').replace("'", '')
-
-                source = os.path.join(THEMES_DIR, self.theme, 'css')
+                if self.theme_dir:
+                    source = os.path.join(self.theme_dir, 'css')
+                else:
+                    source = os.path.join(THEMES_DIR, self.theme, 'css')
 
                 encoded_url = utils.encode_image_from_url(img_url, source)
+                if encoded_url:
+                    html = html.replace(img_url, encoded_url, 1)
+                    self.log("Embedded theme image %s from theme directory %s" % (img_url, source))
+                else:
+                    # Missing file in theme directory. Try user_css folders
+                    found = False
+                    for css_entry in context['user_css']:
+                        directory = os.path.dirname(css_entry['path_url'])
+                        if not directory: 
+                            directory = "."
 
-                html = html.replace(img_url, encoded_url, 1)
+                        encoded_url = utils.encode_image_from_url(img_url, directory)
+                            
+                        if encoded_url:
+                            found = True
+                            html = html.replace(img_url, encoded_url, 1)
+                            self.log("Embedded theme image %s from directory %s" % (img_url, directory))
+                    
+                    if not found:
+                        #Missing image file, etc...
+                        self.log(u"Failed to embed theme image %s" % img_url)
+
+
 
         return html
 
